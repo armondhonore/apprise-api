@@ -7,6 +7,6 @@ application:
     servicePorts:
     - 8000
     volumes:
-    - name: apprise-config
-      mountPath: /config
+    - name: apprise-db
+      mountPath: /apprise/db
       size: 2Gi
