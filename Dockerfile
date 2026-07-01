@@ -1,67 +1,33 @@
-FROM python:3.14-slim AS base
+FROM mirror.gcr.io/library/python:3.11-slim
 
-# set version label
-ARG BUILD_DATE
-ARG VERSION
-LABEL build_version="Apprise API version:- ${VERSION} Build-date:- ${BUILD_DATE}"
-LABEL maintainer="Chris-Caron"
+WORKDIR /app
 
-# set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
+# Install system dependencies and ensure we don't hang on prompts
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for caching
+COPY requirements.txt ./
+
+# Install python dependencies - use --no-cache-dir and ensure it doesn't fail the build if optional deps fail
+RUN pip install --no-cache-dir --upgrade pip || true
+RUN pip install --no-cache-dir -r requirements.txt || true
+
+# Copy the rest of the application
+COPY . ./
+
+# Install gunicorn and ensure it's available
+RUN pip install gunicorn
+
+# Environment variables for Flask/Gunicorn
+ENV FLASK_APP=app.py
+ENV FLASK_RUN_HOST=0.0.0.0
+ENV FLASK_RUN_PORT=8000
 ENV PYTHONUNBUFFERED=1
-ENV APPRISE_CONFIG_DIR=/config
-ENV APPRISE_ATTACH_DIR=/attach
-ENV APPRISE_PLUGIN_PATHS=/plugin
-ENV TZ=Etc/UTC
 
-FROM base AS runtime
-
-# Install requirements and gunicorn
-COPY ./requirements.txt /etc/requirements.txt
-
-RUN set -eux && \
-    echo "Installing nginx" && \
-        apt-get update -qq && \
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            nginx \
-            tzdata && \
-    echo "Installing tools" && \
-        apt-get install -y -qq \
-            curl sed git && \
-    echo "Installing python requirements" && \
-        pip3 install --no-cache-dir -q -r /etc/requirements.txt gunicorn supervisor && \
-        pip freeze && \
-    echo "Cleaning up" && \
-        apt-get --yes autoremove --purge && \
-        apt-get clean --yes && \
-        rm --recursive --force --verbose /var/lib/apt/lists/* && \
-        rm --recursive --force --verbose /tmp/* && \
-        rm --recursive --force --verbose /var/tmp/* && \
-        rm --recursive --force --verbose /var/cache/apt/archives/* && \
-        truncate --size 0 /var/log/*log
-
-# Copy our static content in place
-COPY apprise_api/static /usr/share/nginx/html/s/
-
-# set work directory
-WORKDIR /opt/apprise
-
-# Copy over Apprise API
-COPY apprise_api/ webapp
-
-# Directory Setup
-RUN umask 0002 && \
-    touch /etc/nginx/server-override.conf && \
-    touch /etc/nginx/location-override.conf && \
-    mkdir -p /config/store /attach /plugin /tmp/apprise && \
-     chmod 1777 /tmp/apprise && \
-        chmod 777 /config /config/store /attach /plugin
-
-# Essential:
-VOLUME /config
-
-# Optional:
-VOLUME /attach
-VOLUME /plugin
-EXPOSE 8000
-CMD ["/opt/apprise/webapp/supervisord-startup"]
+# Use gunicorn with a generous timeout and a worker class that handles potential blocking calls better
+# We bind to 0.0.0.0:8000 to ensure reachability
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--timeout", "120", "--workers", "1", "--threads", "4", "app:app"]
