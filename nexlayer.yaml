@@ -1,8 +1,9 @@
 application:
   name: apprise-api
   pods:
-  - name: app
-    image: caronc/apprise-api:latest
-    path: /
-    servicePorts:
-    - 8000
+    - name: app
+      image: "registry.nexlayer.io/user_01kece1xyh817dwff7wnarhkxd/apprise-api:9f1ffa3-fix1"
+      path: /
+      servicePorts:
+        - 8000
+      vars: {}
